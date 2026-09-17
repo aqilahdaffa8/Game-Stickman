@@ -126,6 +126,16 @@ export interface Platform {
   label?: string;
 }
 
+export interface LaunchPad {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  power: number;
+  cooldownTimer: number;
+}
+
 export interface GameStats {
   score: number;
   kills: number;

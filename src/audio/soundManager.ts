@@ -244,6 +244,26 @@ class SoundManager {
     osc.stop(t + 0.12);
   }
 
+  public playLaunchPad() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(840, t + 0.22);
+    gain.gain.setValueAtTime(0.42, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+
   public playReload() {
     if (this.isMuted) return;
     this.initContext();

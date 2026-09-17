@@ -1,6 +1,6 @@
 import { BoundingBox, Platform, Vector2D } from '../types/game';
 
-export const GRAVITY = 1100;
+export const GRAVITY = 980;
 export const TERMINAL_VELOCITY = 950;
 export const GROUND_FRICTION = 0.84;
 export const AIR_FRICTION = 0.96;
@@ -75,7 +75,7 @@ export function moveAndCollide(
         const feetCurrY = y;
         const platTopY = plat.y;
         if (
-          feetPrevY <= platTopY + 4 &&
+          feetPrevY <= platTopY + 14 &&
           feetCurrY >= platTopY &&
           x + size.w / 2 > plat.x &&
           x - size.w / 2 < plat.x + plat.w

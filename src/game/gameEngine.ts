@@ -5,6 +5,7 @@ import {
   EnemyType,
   GameStats,
   IDamageable,
+  LaunchPad,
   MedkitDrop,
   Particle,
   Platform,
@@ -25,6 +26,8 @@ export interface PlayerEntity extends IDamageable {
   aimAngle: number;
   isGrounded: boolean;
   canDoubleJump: boolean;
+  coyoteTimer: number;
+  launchPadTimer: number;
   isDroppingDown: boolean;
   weapons: WeaponState[];
   currentWeaponIndex: number;
@@ -72,6 +75,7 @@ export class GameEngine {
   public projectiles: Projectile[] = [];
   public weaponDrops: WeaponDrop[] = [];
   public medkitDrops: MedkitDrop[] = [];
+  public launchPads: LaunchPad[] = [];
   public particles: Particle[] = [];
   public damageTexts: DamageText[] = [];
   public platforms: Platform[] = [];
@@ -116,6 +120,7 @@ export class GameEngine {
 
   private nextId: number = 1;
   private spawnTimeoutIds: number[] = [];
+  private prevJumpInput: boolean = false;
   public onGameOver?: (stats: GameStats) => void;
   public onVictory?: (stats: GameStats) => void;
 
@@ -126,29 +131,57 @@ export class GameEngine {
 
   public initArena() {
     this.platforms = [
-      // Main Floor
-      { x: 50, y: 800, w: 2300, h: 80, isJumpThrough: false, color: '#334155' },
+      // Main Ground Floor - spacious, clear run-and-gun combat zone
+      { x: 40, y: 800, w: 2320, h: 80, isJumpThrough: false, color: '#0f172a' },
 
-      // Left Base Platform
-      { x: 180, y: 640, w: 340, h: 24, isJumpThrough: true, color: '#475569' },
-      { x: 120, y: 480, w: 320, h: 24, isJumpThrough: true, color: '#475569' },
+      // Left Flank Platform (Tier 1)
+      { x: 200, y: 620, w: 460, h: 22, isJumpThrough: true, color: '#1e293b' },
 
-      // Center Sky Bridge (Double Deck)
-      { x: 700, y: 640, w: 1000, h: 26, isJumpThrough: true, color: '#475569' },
-      { x: 850, y: 480, w: 700, h: 26, isJumpThrough: true, color: '#475569' },
-      { x: 1050, y: 320, w: 300, h: 24, isJumpThrough: true, color: '#64748b' },
+      // Right Flank Platform (Tier 1)
+      { x: 1740, y: 620, w: 460, h: 22, isJumpThrough: true, color: '#1e293b' },
 
-      // Right Base Platform
-      { x: 1880, y: 640, w: 340, h: 24, isJumpThrough: true, color: '#475569' },
-      { x: 1960, y: 480, w: 320, h: 24, isJumpThrough: true, color: '#475569' },
+      // Center Battle Deck (Tier 1)
+      { x: 880, y: 620, w: 640, h: 22, isJumpThrough: true, color: '#1e293b' },
 
-      // Solid Pillars/Barricades
-      { x: 580, y: 720, w: 40, h: 80, isJumpThrough: false, color: '#1e293b' },
-      { x: 1780, y: 720, w: 40, h: 80, isJumpThrough: false, color: '#1e293b' },
+      // Parkour Stepping Ledges (Tier 1 to Skybridge)
+      { x: 730, y: 530, w: 90, h: 18, isJumpThrough: true, color: '#334155' },
+      { x: 1580, y: 530, w: 90, h: 18, isJumpThrough: true, color: '#334155' },
 
-      // Boundaries (Walls)
-      { x: 20, y: 0, w: 30, h: 900, isJumpThrough: false, color: '#1e293b' },
-      { x: 2350, y: 0, w: 30, h: 900, isJumpThrough: false, color: '#1e293b' },
+      // Center Upper Skybridge (Tier 2)
+      { x: 960, y: 440, w: 480, h: 22, isJumpThrough: true, color: '#1e293b' },
+
+      // Parkour Stepping Ledges (Skybridge to Apex Perch)
+      { x: 890, y: 350, w: 85, h: 18, isJumpThrough: true, color: '#334155' },
+      { x: 1425, y: 350, w: 85, h: 18, isJumpThrough: true, color: '#334155' },
+
+      // High Sniper Apex Perch (Tier 3)
+      { x: 1060, y: 260, w: 280, h: 22, isJumpThrough: true, color: '#1e293b' },
+
+      // Outer Wall Parkour Ledges
+      { x: 60, y: 480, w: 100, h: 18, isJumpThrough: true, color: '#334155' },
+      { x: 2240, y: 480, w: 100, h: 18, isJumpThrough: true, color: '#334155' },
+
+      // Tactical Half-Cover Pillars on Ground (can also be used as initial parkour step)
+      { x: 710, y: 720, w: 30, h: 80, isJumpThrough: false, color: '#0f172a' },
+      { x: 1660, y: 720, w: 30, h: 80, isJumpThrough: false, color: '#0f172a' },
+
+      // Arena Outer Walls
+      { x: 20, y: 0, w: 26, h: 900, isJumpThrough: false, color: '#0f172a' },
+      { x: 2354, y: 0, w: 26, h: 900, isJumpThrough: false, color: '#0f172a' },
+    ];
+
+    // Precision Jump Pads: calibrated to reach the floor directly above with just enough clearance
+    this.launchPads = [
+      // Left Ground Pad -> launches cleanly onto Left Flank (y: 620)
+      { id: 1, x: 490, y: 798, w: 56, h: 8, power: -670, cooldownTimer: 0 },
+      // Center Ground Pad -> launches cleanly onto Center Battle Deck (y: 620)
+      { id: 2, x: 1170, y: 798, w: 56, h: 8, power: -670, cooldownTimer: 0 },
+      // Right Ground Pad -> launches cleanly onto Right Flank (y: 620)
+      { id: 3, x: 1850, y: 798, w: 56, h: 8, power: -670, cooldownTimer: 0 },
+      // Center Battle Deck Pad -> launches cleanly onto Upper Skybridge (y: 440)
+      { id: 4, x: 1170, y: 618, w: 56, h: 8, power: -670, cooldownTimer: 0 },
+      // Upper Skybridge Pad -> launches cleanly onto Apex Perch (y: 260)
+      { id: 5, x: 1170, y: 438, w: 56, h: 8, power: -670, cooldownTimer: 0 },
     ];
   }
 
@@ -212,6 +245,8 @@ export class GameEngine {
       aimAngle: 0,
       isGrounded: true,
       canDoubleJump: true,
+      coyoteTimer: 0,
+      launchPadTimer: 0,
       isDroppingDown: false,
       weapons: [
         {
@@ -278,12 +313,13 @@ export class GameEngine {
     // Immediately snap camera to player start position
     this.snapCameraToPlayer();
 
-    // Spawn initial weapon drops around arena
-    this.spawnWeaponDrop('shotgun', 1200, 310);
-    this.spawnWeaponDrop('sword', 250, 630);
-    this.spawnWeaponDrop('rifle', 2050, 470);
-    this.spawnWeaponDrop('grenade', 1200, 630);
-    this.spawnMedkitDrop(1050, 310, 40);
+    // Spawn initial weapon drops and medkits across the clean arena
+    this.spawnWeaponDrop('shotgun', 1050, 430); // Center Upper Skybridge
+    this.spawnWeaponDrop('sword', 450, 610);    // Left Flank
+    this.spawnWeaponDrop('rifle', 1950, 610);   // Right Flank
+    this.spawnWeaponDrop('grenade', 1050, 610); // Center Lower Deck
+    this.spawnMedkitDrop(1200, 250, 50);        // Top Apex Perch
+    this.spawnMedkitDrop(1020, 790, 40);        // Ground Floor
 
     this.startWave(1);
   }
@@ -293,30 +329,29 @@ export class GameEngine {
     this.waveAnnounceTimer = 3.0;
     this.waveAnnounceText = `WAVE ${waveNum} - FIGHT!`;
 
-    // Spawn composition based on wave
+    // Spawn composition based on wave (reduced for cleaner, less crowded tactical combat)
     const spawnList: EnemyType[] = [];
     if (waveNum === 1) {
-      spawnList.push('basic', 'basic', 'basic');
+      spawnList.push('basic', 'basic');
     } else if (waveNum === 2) {
-      spawnList.push('basic', 'basic', 'gunner', 'gunner');
+      spawnList.push('basic', 'gunner');
     } else if (waveNum === 3) {
-      spawnList.push('basic', 'basic', 'gunner', 'gunner', 'heavy');
+      spawnList.push('basic', 'gunner', 'heavy');
     } else if (waveNum === 4) {
-      spawnList.push('basic', 'basic', 'basic', 'gunner', 'gunner', 'gunner', 'heavy');
+      spawnList.push('basic', 'gunner', 'gunner');
     } else {
       // Wave 5 Boss wave
-      spawnList.push('basic', 'basic', 'gunner', 'gunner', 'heavy', 'heavy');
+      spawnList.push('gunner', 'heavy', 'gunner');
     }
 
     const allSpawnPositions = [
       { x: 2150, y: 790 },
-      { x: 1750, y: 790 },
-      { x: 1450, y: 630 },
-      { x: 950, y: 630 },
-      { x: 2000, y: 470 },
-      { x: 600, y: 470 },
-      { x: 1200, y: 310 },
-      { x: 160, y: 790 },
+      { x: 280, y: 790 },
+      { x: 1950, y: 610 },
+      { x: 450, y: 610 },
+      { x: 1200, y: 610 },
+      { x: 1200, y: 430 },
+      { x: 1200, y: 250 },
     ];
 
     // Guarantee enemies do not spawn right on top of the player
@@ -331,12 +366,12 @@ export class GameEngine {
     spawnList.forEach((type, idx) => {
       const pos = spawnPositions[idx % spawnPositions.length];
       const offsetX = ((idx % 3) - 1) * 50;
-      // Stagger spawn delay slightly
+      // Stagger spawn delay slightly for clean pacing
       const tId = window.setTimeout(() => {
         if (!this.isGameOver && !this.isVictory) {
           this.spawnEnemy(type, pos.x + offsetX, pos.y);
         }
-      }, idx * 650);
+      }, idx * 950);
       this.spawnTimeoutIds.push(tId);
     });
   }
@@ -911,20 +946,43 @@ export class GameEngine {
     // Drop down through jump-through platforms
     p.isDroppingDown = input.down;
 
-    // Jump
-    if (input.jump) {
-      if (p.isGrounded) {
-        p.vel.y = -560;
+    // Jump input handling with edge detection & coyote time
+    const jumpJustPressed = input.jump && !this.prevJumpInput;
+    this.prevJumpInput = input.jump;
+
+    if (p.isGrounded) {
+      p.coyoteTimer = 0.14;
+      p.canDoubleJump = true;
+    } else {
+      if (p.coyoteTimer > 0) p.coyoteTimer -= dt;
+    }
+
+    if (p.launchPadTimer > 0) {
+      p.launchPadTimer -= dt;
+    }
+
+    if (jumpJustPressed) {
+      if (p.isGrounded || p.coyoteTimer > 0) {
+        // Snappy, controlled initial jump (reduced slightly for tight platforming)
+        p.vel.y = -530;
         p.isGrounded = false;
+        p.coyoteTimer = 0;
         p.canDoubleJump = true;
         soundManager.playJump();
         this.createSmokePuff(p.pos.x, p.pos.y, 6);
       } else if (p.canDoubleJump) {
-        p.vel.y = -520;
+        // Double-jump for parkour leaps
+        p.vel.y = -500;
         p.canDoubleJump = false;
         soundManager.playJump();
-        this.createSmokePuff(p.pos.x, p.pos.y - 15, 8);
+        this.createSmokePuff(p.pos.x, p.pos.y - 15, 7);
+        this.createHitSparks(p.pos.x, p.pos.y - 10, '#38bdf8', 5);
       }
+    }
+
+    // Variable jump height: release early to cut jump height if desired (only during regular jumps, never during launch pad flight!)
+    if (!input.jump && p.vel.y < -180 && p.launchPadTimer <= 0) {
+      p.vel.y *= 0.88;
     }
 
     // Aiming & Facing
@@ -965,6 +1023,28 @@ export class GameEngine {
     p.pos = res.pos;
     p.vel = res.vel;
     p.isGrounded = res.isGrounded;
+
+    // Launch Pad interaction
+    for (const pad of this.launchPads) {
+      if (pad.cooldownTimer > 0) pad.cooldownTimer -= dt;
+      if (
+        Math.abs(p.pos.x - (pad.x + pad.w / 2)) < pad.w / 2 + 15 &&
+        Math.abs(p.pos.y - pad.y) < 22 &&
+        p.vel.y >= -150 &&
+        pad.cooldownTimer <= 0
+      ) {
+        p.pos.y = pad.y - 12;
+        p.vel.y = pad.power; // Calibrated launch to the floor directly above
+        p.isGrounded = false;
+        p.canDoubleJump = true;
+        p.launchPadTimer = 0.55; // Protect full arc to the next floor
+        pad.cooldownTimer = 0.35;
+        soundManager.playLaunchPad();
+        this.addCameraShake(0.22);
+        this.createExplosionParticles(pad.x + pad.w / 2, pad.y, '#38bdf8', 14);
+        this.createHitSparks(pad.x + pad.w / 2, pad.y - 12, '#e0f2fe', 8);
+      }
+    }
   }
 
   private updateEnemies(dt: number) {
@@ -1048,8 +1128,8 @@ export class GameEngine {
           e.runTimer += dt;
 
           // Jump if player is higher up and close
-          if (this.player.pos.y < e.pos.y - 70 && e.isGrounded && Math.abs(dx) < 260) {
-            e.vel.y = -550;
+          if (this.player.pos.y < e.pos.y - 50 && e.isGrounded && Math.abs(dx) < 280) {
+            e.vel.y = -530;
             e.isGrounded = false;
             soundManager.playJump();
           }
@@ -1095,11 +1175,25 @@ export class GameEngine {
           break;
       }
 
-      // Physics
-      const res = moveAndCollide(e.pos, e.vel, { w: 20 * e.scale, h: 54 * e.scale }, this.platforms, dt, false);
+      // Physics: enemy drops down if player is well below them on a lower deck
+      const enemyDropsDown = isPlayerAlive && this.player.pos.y > e.pos.y + 90 && Math.abs(dx) < 280;
+      const res = moveAndCollide(e.pos, e.vel, { w: 20 * e.scale, h: 54 * e.scale }, this.platforms, dt, enemyDropsDown);
       e.pos = res.pos;
       e.vel = res.vel;
       e.isGrounded = res.isGrounded;
+
+      // Enemy Launch Pad interaction
+      for (const pad of this.launchPads) {
+        if (
+          Math.abs(e.pos.x - (pad.x + pad.w / 2)) < pad.w / 2 + 10 &&
+          Math.abs(e.pos.y - pad.y) < 16 &&
+          e.vel.y >= -80
+        ) {
+          e.pos.y = pad.y - 12;
+          e.vel.y = pad.power * 0.95;
+          e.isGrounded = false;
+        }
+      }
     });
 
     // Enemy soft-body separation & anti-clipping ("nempel" bug fix)
@@ -1545,8 +1639,9 @@ export class GameEngine {
     // Draw Arena Background Grid & Glows
     this.renderArenaBackdrop(ctx);
 
-    // Draw Platforms
+    // Draw Platforms & Launch Pads
     this.renderPlatforms(ctx);
+    this.renderLaunchPads(ctx);
 
     // Draw Weapon Drops & Medkit Drops
     this.renderWeaponDrops(ctx);
@@ -1649,27 +1744,71 @@ export class GameEngine {
   private renderPlatforms(ctx: CanvasRenderingContext2D) {
     for (const plat of this.platforms) {
       if (plat.isJumpThrough) {
-        // Sci-Fi jump-through energy ledge
-        ctx.fillStyle = plat.color || '#475569';
+        // Sci-Fi jump-through combat deck
+        ctx.fillStyle = plat.color || '#1e293b';
         ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
 
-        // Neon glowing top edge
+        // Thin subtle platform frame
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
+
+        // Crisp neon cyan top edge
         ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(plat.x, plat.y);
         ctx.lineTo(plat.x + plat.w, plat.y);
         ctx.stroke();
       } else {
-        // Solid structure
-        ctx.fillStyle = plat.color || '#1e293b';
+        // Solid floor and boundary structures
+        ctx.fillStyle = plat.color || '#0f172a';
         ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
 
-        // Highlight border
+        // Subtle structural border
         ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
       }
+    }
+  }
+
+  private renderLaunchPads(ctx: CanvasRenderingContext2D) {
+    const time = Date.now() * 0.006;
+    for (const pad of this.launchPads) {
+      ctx.save();
+
+      // Pad mechanical base
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(pad.x, pad.y - 3, pad.w, pad.h + 3);
+
+      // Neon glowing border
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(pad.x, pad.y - 3, pad.w, pad.h + 3);
+
+      // Upward energy beam glow
+      const padGrad = ctx.createLinearGradient(pad.x, pad.y, pad.x, pad.y - 32);
+      padGrad.addColorStop(0, 'rgba(56, 189, 248, 0.45)');
+      padGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      ctx.fillStyle = padGrad;
+      ctx.fillRect(pad.x + 3, pad.y - 30, pad.w - 6, 30);
+
+      // Animated double chevron arrows pulsing upwards
+      const offset1 = (Math.sin(time) + 1) * 0.5 * 8;
+      const offset2 = (Math.sin(time + 1.2) + 1) * 0.5 * 8;
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('▲', pad.x + pad.w / 2, pad.y - 6 - offset1);
+
+      ctx.fillStyle = '#bae6fd';
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.fillText('▲', pad.x + pad.w / 2, pad.y - 17 - offset2);
+
+      ctx.restore();
     }
   }
 
