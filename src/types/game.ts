@@ -79,6 +79,17 @@ export interface WeaponDrop {
   bobTimer: number;
 }
 
+export interface MedkitDrop {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  grounded: boolean;
+  healAmount: number;
+  bobTimer: number;
+}
+
 export interface Particle {
   x: number;
   y: number;

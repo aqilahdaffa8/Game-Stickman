@@ -5,6 +5,7 @@ import {
   EnemyType,
   GameStats,
   IDamageable,
+  MedkitDrop,
   Particle,
   Platform,
   Projectile,
@@ -70,6 +71,7 @@ export class GameEngine {
   public enemies: EnemyEntity[] = [];
   public projectiles: Projectile[] = [];
   public weaponDrops: WeaponDrop[] = [];
+  public medkitDrops: MedkitDrop[] = [];
   public particles: Particle[] = [];
   public damageTexts: DamageText[] = [];
   public platforms: Platform[] = [];
@@ -195,6 +197,7 @@ export class GameEngine {
     this.enemies = [];
     this.projectiles = [];
     this.weaponDrops = [];
+    this.medkitDrops = [];
     this.particles = [];
     this.damageTexts = [];
 
@@ -280,6 +283,7 @@ export class GameEngine {
     this.spawnWeaponDrop('sword', 250, 630);
     this.spawnWeaponDrop('rifle', 2050, 470);
     this.spawnWeaponDrop('grenade', 1200, 630);
+    this.spawnMedkitDrop(1050, 310, 40);
 
     this.startWave(1);
   }
@@ -449,6 +453,10 @@ export class GameEngine {
           this.addCameraShake(0.25);
           this.createExplosionParticles(enemy.pos.x, enemy.pos.y - 30, enemy.color, 25);
 
+          // Drop medkit every time an enemy is killed!
+          const healAmount = enemy.type === 'heavy' ? 50 : 35;
+          this.spawnMedkitDrop(enemy.pos.x, enemy.pos.y - 25, healAmount);
+
           // Chance to drop weapon on death
           if (Math.random() < 0.6 && enemy.weapon.data.id !== 'fist') {
             this.spawnWeaponDrop(enemy.weapon.data.id, enemy.pos.x, enemy.pos.y - 20);
@@ -501,6 +509,20 @@ export class GameEngine {
       ammo: data.magazineSize,
       bobTimer: Math.random() * 10,
     });
+  }
+
+  public spawnMedkitDrop(x: number, y: number, healAmount: number = 35) {
+    this.medkitDrops.push({
+      id: this.nextId++,
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 110,
+      vy: -180 - Math.random() * 60,
+      grounded: false,
+      healAmount,
+      bobTimer: Math.random() * 10,
+    });
+    this.createHitSparks(x, y, '#22c55e', 5);
   }
 
   public pickupWeapon() {
@@ -835,8 +857,9 @@ export class GameEngine {
     // 3. Update Projectiles
     this.updateProjectiles(dt);
 
-    // 4. Update Weapon Drops
+    // 4. Update Weapon Drops & Medkit Drops
     this.updateWeaponDrops(dt);
+    this.updateMedkitDrops(dt);
 
     // 5. Update Particles & Floaters
     this.updateParticles(dt);
@@ -1274,6 +1297,72 @@ export class GameEngine {
     }
   }
 
+  private updateMedkitDrops(dt: number) {
+    for (let i = this.medkitDrops.length - 1; i >= 0; i--) {
+      const drop = this.medkitDrops[i];
+      drop.bobTimer += dt;
+      if (!drop.grounded) {
+        drop.vy += 900 * dt;
+        drop.x += drop.vx * dt;
+        drop.y += drop.vy * dt;
+        drop.vx *= 0.98;
+
+        for (const plat of this.platforms) {
+          if (checkAABB({ x: drop.x - 14, y: drop.y - 12, w: 28, h: 24 }, plat)) {
+            drop.y = plat.y;
+            drop.vy = 0;
+            drop.grounded = true;
+            break;
+          }
+        }
+      }
+
+      // Check proximity pickup by player (auto pickup on walk-over)
+      if (this.player && !this.player.isDead) {
+        const pDist = distance(
+          { x: this.player.pos.x, y: this.player.pos.y - 28 },
+          { x: drop.x, y: drop.y - 10 }
+        );
+
+        if (pDist < 46) {
+          // Player collected medkit!
+          const missingHp = this.player.maxHp - this.player.hp;
+          if (missingHp > 0) {
+            const actualHealed = Math.min(missingHp, drop.healAmount);
+            this.player.hp = Math.min(this.player.maxHp, this.player.hp + drop.healAmount);
+            this.addDamageText(this.player.pos.x, this.player.pos.y - 65, `+${actualHealed} HP`, '#22c55e', true);
+          } else {
+            // Already full HP -> gives score reward
+            this.player.score += 75;
+            this.stats.score += 75;
+            this.addDamageText(this.player.pos.x, this.player.pos.y - 65, `+75 PTS (MAX HP)`, '#4ade80', false);
+          }
+
+          soundManager.playHeal();
+
+          // Green healing sparkles bursting around player
+          for (let s = 0; s < 14; s++) {
+            const angle = (s / 14) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+            const speed = 50 + Math.random() * 80;
+            this.particles.push({
+              x: this.player.pos.x,
+              y: this.player.pos.y - 28,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed - 35,
+              size: 2.5 + Math.random() * 2,
+              color: s % 2 === 0 ? '#22c55e' : '#86efac',
+              life: 0,
+              maxLife: 0.35 + Math.random() * 0.2,
+              type: 'spark',
+            });
+          }
+
+          this.medkitDrops.splice(i, 1);
+        }
+      }
+    }
+  }
+
   private updateParticles(dt: number) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -1459,8 +1548,9 @@ export class GameEngine {
     // Draw Platforms
     this.renderPlatforms(ctx);
 
-    // Draw Weapon Drops
+    // Draw Weapon Drops & Medkit Drops
     this.renderWeaponDrops(ctx);
+    this.renderMedkitDrops(ctx);
 
     // Draw Enemies
     this.enemies.forEach((enemy) => {
@@ -1617,6 +1707,71 @@ export class GameEngine {
       ctx.font = '9px system-ui, sans-serif';
       ctx.fillText(`[E] PICKUP`, 0, -6);
       ctx.restore();
+
+      ctx.restore();
+    }
+  }
+
+  private renderMedkitDrops(ctx: CanvasRenderingContext2D) {
+    for (const drop of this.medkitDrops) {
+      const bobY = drop.y - 14 + Math.sin(drop.bobTimer * 4.5) * 4;
+
+      ctx.save();
+
+      // Ambient emerald radial glow
+      const glowGrad = ctx.createRadialGradient(drop.x, bobY, 3, drop.x, bobY, 28);
+      glowGrad.addColorStop(0, 'rgba(34, 197, 94, 0.5)');
+      glowGrad.addColorStop(0.6, 'rgba(34, 197, 94, 0.15)');
+      glowGrad.addColorStop(1, 'rgba(34, 197, 94, 0)');
+      ctx.fillStyle = glowGrad;
+      ctx.beginPath();
+      ctx.arc(drop.x, bobY, 28, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pedestal glowing ring on ground
+      ctx.strokeStyle = 'rgba(34, 197, 94, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(drop.x, drop.y - 2, 16, 4.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Medkit Body
+      ctx.translate(drop.x, bobY);
+
+      // White briefcase with green rim
+      const boxW = 20;
+      const boxH = 15;
+      const boxR = 3;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#15803d';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, boxR);
+      ctx.fill();
+      ctx.stroke();
+
+      // Dark top handle
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-4, -boxH / 2);
+      ctx.lineTo(-4, -boxH / 2 - 3);
+      ctx.lineTo(4, -boxH / 2 - 3);
+      ctx.lineTo(4, -boxH / 2);
+      ctx.stroke();
+
+      // Iconic Red Medical Cross in center
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-2, -5, 4, 10);
+      ctx.fillRect(-5, -2, 10, 4);
+
+      // Overhead floating text "+35 HP" or "+50 HP"
+      ctx.fillStyle = '#4ade80';
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = 4;
+      ctx.fillText(`+${drop.healAmount} HP`, 0, -13);
 
       ctx.restore();
     }

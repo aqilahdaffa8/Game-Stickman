@@ -289,6 +289,29 @@ class SoundManager {
     });
   }
 
+  public playHeal() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const t = this.ctx.currentTime;
+    // Harmonious upward recovery chimes (C5, E5, G5, C6)
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t + idx * 0.055);
+      gain.gain.setValueAtTime(0.28, t + idx * 0.055);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + idx * 0.055 + 0.32);
+
+      osc.connect(gain);
+      gain.connect(this.sfxGain!);
+      osc.start(t + idx * 0.055);
+      osc.stop(t + idx * 0.055 + 0.32);
+    });
+  }
+
   public playEnemyDeath() {
     if (this.isMuted) return;
     this.initContext();
