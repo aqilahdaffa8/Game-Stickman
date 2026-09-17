@@ -1,0 +1,6 @@
+{
+  "name": "Stickman Battle 2D",
+  "description": "Fast-paced 2D Physics Stickman Combat game with modular weapons, enemy AI waves, dynamic camera shake, and complete Unity C# architecture export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
